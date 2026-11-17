@@ -1,44 +1,63 @@
-from density_matrix import DensityMatrix
-from operators import Operator
-from symbols import t
 import sympy as sp
+from copy import deepcopy
+from symbols import t
 
-def z_rotor(rho: DensityMatrix, angle: sp.Expr) -> sp.MatrixBase:
-    z_rotor = sp.zeros(rho.len, rho.len)
-    for i in range(rho.len):
-        z_rotor[i,i] = sp.srepr(sp.exp(-sp.I * rho.states[i].mF * angle))
-    return z_rotor
+def RWA(operator, rotation, omega):
+    """
+    Apply rotating-frame transformation and remove fast oscillating terms.
 
-def RWA(operator, rotation: sp.MatrixBase, omega):
-    def keep_harmonics(expr, omega):
-        target = sp.I * omega * t
-        result = 0
-        for term in sp.Add.make_args(sp.expand(expr)):
-            keep = True
-            for e in term.atoms(sp.exp):
-                exponent = sp.expand(e.args[0])
-                n = exponent.coeff(target)
-                if abs(n) > 1:
-                    keep = False
-                    break
-            if keep:
-                result += term
-        return sp.simplify(result)
-    
-    if isinstance(operator, Operator):
-        superop = operator
-        superop.mtx = rotation.H * superop.mtx * rotation - \
-            sp.I * rotation.H * sp.diff(rotation, t)
-        for i in range(superop.len):
-            for j in range(superop.len):
-                superop.mtx[i,j] = keep_harmonics(superop.mtx[i,j].rewrite(sp.exp), omega)
-        return superop
-    else:
-        print('WRONG ENTRY!')
-        superop = rotation.H * operator * rotation - \
-            sp.I * rotation.H * sp.diff(rotation, t)
-        
-        for i in range(superop.shape[0]):
-            for j in range(superop.shape[1]):
-                superop[i,j] = keep_harmonics(superop[i,j], omega)
-        return superop
+    H' = U† H U - i U† dU/dt
+    """
+
+    op = deepcopy(operator)
+
+    op.mtx = (
+        rotation.H * op.mtx * rotation
+        - sp.I * rotation.H * sp.diff(rotation, t)
+    )
+
+    for i in range(op.len):
+        for j in range(op.len):
+            op.mtx[i, j] = keep_static_terms(op.mtx[i, j], omega)
+
+    return op
+
+
+def keep_static_terms(expr, omega):
+    """
+    Keep only terms with zero harmonic frequency.
+    """
+
+    expr = sp.expand(expr.rewrite(sp.exp))
+
+    result = 0
+    target = sp.I * omega * t
+
+    for term in sp.Add.make_args(expr):
+
+        harmonic = 0
+
+        for exponential in term.atoms(sp.exp):
+            exponent = sp.expand(exponential.args[0])
+
+            # coefficient of i*omega*t
+            harmonic += exponent.coeff(target)
+
+        if harmonic == 0:
+            result += term
+
+    return sp.simplify(result)
+
+def optical_rotor(rho, omega_R):
+    """
+    Rotates excited states by exp(-i omega_R t).
+    """
+
+    U = sp.eye(rho.len)
+
+    for i, state in enumerate(rho.states):
+
+        if state.L == 1:     # replace later with explicit excited manifold flag
+            U[i, i] = sp.exp(-sp.I * omega_R * t)
+
+    return U

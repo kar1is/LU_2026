@@ -1,123 +1,126 @@
-from densitymatrix import DensityMatrix
+# from densitymatrix import DensityMatrix
 from interactions import BField, EField
-from symbols import t
 from utilities import com, acom
 import sympy as sp
+from matrix_elements import hyperfine_magnetic_element, \
+                            electric_dipole_element, \
+                            hyperfine_self_interaction
 
+
+# General operator class
 class Operator:
     len: int
-    symbols: list[object]
-    mtx: list[object]
+    symbols: list[object]   # Symbols used in the representaion
+    mtx: list[object]       # Matrix representation
     
-    def add_sym(self, symbols: object):
-        if not isinstance(symbols, list) and \
-            symbols not in self.symbols:
+    def _add_sym(self, symbols: object):
+        if not isinstance(symbols, list):
             symbols = [symbols]
         for symbol in symbols:
-            if symbol in self.symbols:
+            if symbol not in self.symbols:
                 self.symbols.append(symbol)
 
+
 class Hamiltonian(Operator):
-    def __init__(self, rho: DensityMatrix):
-        self.len = rho.len
-        self.rho = rho
-        self.states = rho.states
+    def __init__(self, ρ):
+        self.rho = ρ
+        self.states = ρ.states
+        self.len = ρ.len
         self.symbols = []
-        self._create_mtx()
-    
-    def _create_mtx(self):
+
         self.mtx = sp.zeros(self.len, self.len)
-        for i in range(self.len):
-            self.add_sym(sp.symbols(f'E{i+1}'))
-            self.mtx[i,i] += sp.symbols(f'E{i+1}')
+        self._add_bare_energy()
+        self._add_hyperfine_self_interaction()
+
+    def _add_bare_energy(self):
+        previous = None
+        energy_number = 0
+
+        for i,state in enumerate(self.states):
+            manifold = (state.n, state.L, state.F)
+
+            if manifold != previous:
+                energy_number += 1
+                previous = manifold
+
+            self.mtx[i,i] += sp.Symbol(f"E{energy_number}")
     
+    def _add_hyperfine_self_interaction(self):
+        # Diagonal in the |F, mF> basis, so only the diagonal is touched.
+        for i, state in enumerate(self.states):
+            self.mtx[i, i] += hyperfine_self_interaction(state, state)
+
     def add_field(self, field):
-        for i in range(self.len):
-            for j in range(self.len):
-                    
-                if isinstance(field, BField) and \
-                    field.pol == 'pi' and \
-                        i == j:
-                        self.add_sym(sp.symbols('B0'))
-                        self.mtx[i,i] += self.states[i].mF * sp.symbols('B0')
+        self._add_sym(field.symbols)
+        for i,state_i in enumerate(self.states):
+            for j,state_j in enumerate(self.states):
                 
-                # Creates matrix elements for dipole interaction with B field
-                if isinstance(field, BField) and \
-                    field.pol != 'pi' and \
-                    abs(self.states[i].L - self.states[j].L) == 0 and \
-                    abs(self.states[i].mF - self.states[j].mF) == 1:
-                        self.add_sym(sp.symbols('\u03A9RF', positive=True))
-                        self.add_sym(field.freq)
-                        self.mtx[i,j] += sp.Rational(1,2) * \
-                            (sp.exp(sp.I * field.freq * t) + \
-                             sp.exp(-sp.I * field.freq * t)) * \
-                            sp.symbols('\u03A9RF', positive=True)
-                
-                if isinstance(field, EField) and \
-                    field.pol == 'pi' and \
-                    abs(self.states[i].L - self.states[j].L) == 1 and \
-                    abs(self.states[i].mF - self.states[j].mF) == 0:
-                        self.add_sym(sp.symbols('\u03A9', positive=True))
-                        self.add_sym(field.freq)
-                        self.mtx[i,j] += sp.Rational(1,2) * \
-                            (sp.exp(sp.I * field.freq * t) + \
-                             sp.exp(-sp.I * field.freq * t)) * \
-                            sp.symbols('\u03A9', positive=True)
-                
-                if isinstance(field, EField) and \
-                    field.pol != 'pi' and \
-                    abs(self.states[i].L - self.states[j].L) == 1 and \
-                    abs(self.states[i].mF - self.states[j].mF) == 1:
-                        self.add_sym(sp.symbols('\u03A9', positive=True))
-                        self.add_sym(field.freq)
-                        self.mtx[i,j] += sp.Rational(1,2) * \
-                            (sp.exp(sp.I * field.freq * t) + \
-                             sp.exp(-sp.I * field.freq * t)) * \
-                            sp.symbols('\u03A9', positive=True)
+                if isinstance(field,BField):
+                    element = hyperfine_magnetic_element(
+                                field, state_i, state_j)
+
+                elif isinstance(field,EField):
+                    element = electric_dipole_element(field, state_i, state_j)
+
+                else:
+                    element = 0
+
+                self.mtx[i,j] += element
+
+
+class JumpOperator:
+    def __init__(self, rho, ket, bra, proportion, rate):
+        self.len = rho.len
+        self.mtx = sp.zeros(self.len, self.len)
+        self.mtx[ket, bra] = sp.sqrt(proportion * rate)
+        self.symbols = [rate]
 
 
 class Lindblad(Operator):
-    coeff = None
-    
-    def __init__(self, *args):
-        if isinstance(args[0], DensityMatrix):
-            self.rho = args[0]
-            self.len = args[0].len
-        elif isinstance(args[0], Hamiltonian):
-            self.rho = args[0].rho
-            self.len = args[0].len
-            self._add_hamiltonian(args[0])
-        self.jump = []
-        self.lindblad = sp.zeros(self.len, self.len)
-    
-    def _add_hamiltonian(self, ham):
-        self.H = ham
-        self.symbols = ham.symbols
-        self.mtx = -sp.I * com(ham.mtx, self.rho.mtx)
-    
-    def add_jump(self, C):
-        self.jump.append(C)
-        self.add_sym(C.symbols)
-        self.mtx += C.mtx*self.rho.mtx*C.mtx.H - \
-            sp.Rational(1,2)*acom(C.mtx.H*C.mtx, self.rho.mtx)
-    
-    def get_coeff(self):
-        if self.coeff == None:
-            for i in range(self.mtx.shape[0]):
-                for j in range(self.mtx.shape[1]):
-                    self.mtx[i,j] = sp.collect(self.mtx[i,j], self.rho.list)
-
-            mtx2 = sp.Matrix(self.mtx).reshape(self.rho.len**2,1)
-
-            self.coeff = mtx2.jacobian(self.rho.list)
-            return self.coeff
-        else:
-            return self.coeff
-
-class Project(Operator):
-    def __init__(self, rho, ket, bra, coeff):
-        self.len = rho.len
+    def __init__(self, ρ, H=None):
+        self.rho = ρ
+        self.len = ρ.len
         self.mtx = sp.zeros(self.len, self.len)
-        if isinstance(ket, int) and isinstance(bra, int):
-            self.mtx[ket, bra] = sp.sqrt(coeff)
-            self.symbols = coeff
+        self.symbols = []
+        
+        if H is not None:
+            self.add_hamiltonian(H)
+
+    def add_hamiltonian(self, H):
+        self.mtx += -sp.I * com(H.mtx, self.rho.mtx)
+        self._add_sym(H.symbols)
+
+    def add_jump(self, C):
+        """ Just add a jump operator. """
+        self._add_sym(C.symbols)
+        self.mtx += ( C.mtx * self.rho.mtx * C.mtx.H - \
+                     sp.Rational(1, 2) * acom(C.mtx.H * C.mtx, self.rho.mtx))
+
+    def add_term(self, term):
+        """ Add arbitrary superoperator term. """
+        self.mtx += term
+    
+    def add_transit(self, γ):
+        """ Transit relaxation. """
+        self._add_sym(γ)
+        for state in self.rho.states:
+            self.spontaneous_decay(state, state, 1, γ)
+        for i in range(self.len):
+            # population loss
+            self.mtx[i,i] -= γ * self.rho.mtx[i,i]
+    
+    def spontaneous_decay(self, excited, ground, proportion, rate):
+        """ Add one spontaneous transition with rate Gamma. """
+        e = self.rho.states.index(excited)
+        g = self.rho.states.index(ground)
+        C = JumpOperator(self.rho, g, e, proportion, rate)
+        self.add_jump(C)
+
+    def get_coeff(self):
+        vector = sp.Matrix([
+            self.mtx[i, j]
+            for i in range(self.len)
+            for j in range(self.len)
+        ])
+
+        return vector.jacobian(self.rho.list)

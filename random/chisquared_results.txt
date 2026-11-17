@@ -1,0 +1,58 @@
+print(peak_splitting)
+[[0.9        0.08361204]
+ [1.         0.11705686]
+ [1.1        0.15050167]
+ [1.2        0.16722408]
+ [1.3        0.2173913 ]
+ [1.4        0.25083612]
+ [1.5        0.28428094]
+ [1.6        0.31772575]
+ [1.7        0.36789298]
+ [1.8        0.40133779]
+ [1.9        0.45150502]
+ [2.         0.50167224]
+ [2.1        0.53511706]
+ [2.2        0.56856187]
+ [2.3        0.60200669]
+ [2.4        0.63545151]]
+
+print(peak_splitting.tolist())
+[[0.9, 0.08361204013377943], [1.0, 0.11705685618729111], [1.1, 0.1505016722408028], [1.2000000000000002, 0.16722408026755842], [1.3000000000000003, 0.21739130434782616], [1.4000000000000001, 0.25083612040133785], [1.5000000000000002, 0.28428093645484953], [1.6, 0.3177257525083612], [1.7000000000000002, 0.36789297658862896], [1.8000000000000003, 0.4013377926421402], [1.9000000000000001, 0.45150501672240795], [2.0, 0.5016722408026753], [2.1, 0.5351170568561869], [2.2, 0.5685618729096986], [2.3000000000000003, 0.6020066889632103], [2.4000000000000004, 0.635451505016722]]
+
+%runfile /home/lnx/LU_2026/untitled0.py --wdir
+Reloaded modules: symbols, utilities, interactions, matrix_elements, operators, rwa, atom, densitymatrix, parameters, absorption
+Chi2 for linear: 0.00896973908221316.
+Chi2 for quadratic: 0.003864304647010257.
+
+%runcell -i 0 /home/lnx/LU_2026/untitled0.py
+RSS linear: 0.00161121
+RSS quadratic: 0.00116003
+F-statistic: 5.0562
+p-value: 0.042517
+
+%runfile /home/lnx/LU_2026/untitled0.py --wdir
+RSS linear: 0.00161121
+RSS quadratic: 0.00116003
+F-statistic: 5.0562
+p-value: 0.042517
+
+rms_linear = np.sqrt(RSS_linear / len(y))
+rms_quadratic = np.sqrt(RSS_quadratic / len(y))
+
+print(f"Linear RMS residual:    {rms_linear:.6g}")
+print(f"Quadratic RMS residual: {rms_quadratic:.6g}")
+print(f"RSS reduction: {100*(1 - RSS_quadratic/RSS_linear):.2f}%")
+Linear RMS residual:    0.010035
+Quadratic RMS residual: 0.00851481
+RSS reduction: 28.00%
+
+import matplotlib.pyplot as plt
+
+plt.axhline(0, color="black", linestyle="--")
+plt.plot(x, residuals_linear, "o-", label="Linear residuals")
+plt.plot(x, residuals_quadratic, "s-", label="Quadratic residuals")
+
+plt.xlabel("x")
+plt.ylabel("Residual")
+plt.legend()
+plt.show()
